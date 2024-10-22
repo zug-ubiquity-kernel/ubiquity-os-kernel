@@ -1,14 +1,14 @@
-import { Hono } from "hono";
-import { HTTPException } from "hono/http-exception";
-import { Context } from "./context";
-import { customOctokit } from "./octokit";
 import { EmitterWebhookEventName as WebhookEventName } from "@octokit/webhooks";
-import { verifySignature } from "./signature";
-import { KERNEL_PUBLIC_KEY } from "./constants";
-import { Logs, LogLevel, LOG_LEVEL, LogReturn } from "@ubiquity-dao/ubiquibot-logger";
-import { Manifest } from "../types/manifest";
 import { TAnySchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { LOG_LEVEL, LogLevel, LogReturn, Logs } from "@ubiquity-os/ubiquity-os-logger";
+import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
+import { Manifest } from "../types/manifest";
+import { KERNEL_PUBLIC_KEY } from "./constants";
+import { Context } from "./context";
+import { customOctokit } from "./octokit";
+import { verifySignature } from "./signature";
 import { sanitizeMetadata } from "./util";
 
 interface Options {
@@ -52,16 +52,16 @@ export async function createPlugin<TConfig = unknown, TEnv = unknown, TSupported
 
     let config: TConfig;
     if (pluginOptions.settingsSchema) {
-      config = Value.Decode(pluginOptions.settingsSchema, payload.settings);
+      config = Value.Decode(pluginOptions.settingsSchema, Value.Default(pluginOptions.settingsSchema, payload.settings));
     } else {
       config = payload.settings as TConfig;
     }
 
     let env: TEnv;
     if (pluginOptions.envSchema) {
-      env = Value.Decode(pluginOptions.envSchema, process.env);
+      env = Value.Decode(pluginOptions.envSchema, Value.Default(pluginOptions.envSchema, ctx.env));
     } else {
-      env = process.env as TEnv;
+      env = ctx.env as TEnv;
     }
 
     const context: Context<TConfig, TEnv, TSupportedEvents> = {

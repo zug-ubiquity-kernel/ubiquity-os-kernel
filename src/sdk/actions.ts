@@ -1,13 +1,15 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import { Context } from "./context";
-import { customOctokit } from "./octokit";
 import { EmitterWebhookEventName as WebhookEventName } from "@octokit/webhooks";
-import { Logs, LogLevel, LOG_LEVEL, LogReturn } from "@ubiquity-dao/ubiquibot-logger";
-import { config } from "dotenv";
 import { Type as T, TAnySchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { LOG_LEVEL, LogLevel, LogReturn, Logs } from "@ubiquity-os/ubiquity-os-logger";
+import { config } from "dotenv";
+import { Context } from "./context";
+import { customOctokit } from "./octokit";
 import { sanitizeMetadata } from "./util";
+import { verifySignature } from "./signature";
+import { KERNEL_PUBLIC_KEY } from "./constants";
 
 config();
 
@@ -16,6 +18,7 @@ interface Options {
   postCommentOnError?: boolean;
   settingsSchema?: TAnySchema;
   envSchema?: TAnySchema;
+  kernelPublicKey?: string;
 }
 
 const inputSchema = T.Object({
@@ -25,6 +28,7 @@ const inputSchema = T.Object({
   authToken: T.String(),
   settings: T.String(),
   ref: T.String(),
+  signature: T.String(),
 });
 
 export async function createActionsPlugin<TConfig = unknown, TEnv = unknown, TSupportedEvents extends WebhookEventName = WebhookEventName>(
@@ -36,20 +40,29 @@ export async function createActionsPlugin<TConfig = unknown, TEnv = unknown, TSu
     postCommentOnError: options?.postCommentOnError || true,
     settingsSchema: options?.settingsSchema,
     envSchema: options?.envSchema,
+    kernelPublicKey: options?.kernelPublicKey || KERNEL_PUBLIC_KEY,
   };
+
+  const githubInputs = { ...github.context.payload.inputs };
+  const signature = githubInputs.signature;
+  delete githubInputs.signature;
+  if (!(await verifySignature(pluginOptions.kernelPublicKey, githubInputs, signature))) {
+    core.setFailed(`Error: Invalid signature`);
+    return;
+  }
 
   const inputs = Value.Decode(inputSchema, github.context.payload.inputs);
 
   let config: TConfig;
   if (pluginOptions.settingsSchema) {
-    config = Value.Decode(pluginOptions.settingsSchema, JSON.parse(inputs.settings));
+    config = Value.Decode(pluginOptions.settingsSchema, Value.Default(pluginOptions.settingsSchema, JSON.parse(inputs.settings)));
   } else {
     config = JSON.parse(inputs.settings) as TConfig;
   }
 
   let env: TEnv;
   if (pluginOptions.envSchema) {
-    env = Value.Decode(pluginOptions.envSchema, process.env);
+    env = Value.Decode(pluginOptions.envSchema, Value.Default(pluginOptions.envSchema, process.env));
   } else {
     env = process.env as TEnv;
   }
